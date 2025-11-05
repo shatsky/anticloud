@@ -315,15 +315,20 @@ def accumulate_all(workdir='.'):
 def show_size(*paths):
     d_stat = {}
     d_count = {}
+    size_unoptimized = 0
     for path in paths:
         print(path)
         for root, subdirs, files in os.walk(path):
             for file_ in files:
+                #if not file_.split('.', -1)[-1].lower() in ['jpg', 'jpeg']:
+                #if not file_.split('.', -1)[-1].lower() in ['mp4', 'mov']:
+                #    continue
                 stat = os.stat(os.path.join(root, file_), follow_symlinks=False)
                 d_stat[stat.st_ino] = stat
                 d_count[stat.st_ino] = d_count.get(stat.st_ino, 0)+1
                 #print(os.path.join(root[len(path):], file_))
                 #print(d[stat.st_ino])
+                size_unoptimized += stat.st_size
     size_unique = 0
     size_shared = 0
     for st_ino in d_stat:
@@ -331,7 +336,7 @@ def show_size(*paths):
             size_unique += d_stat[st_ino].st_size
         else:
             size_shared += d_stat[st_ino].st_size
-    print('unique:', size_human(size_unique), 'shared:', size_human(size_shared), 'total:', size_human(size_unique+size_shared))
+    print('unique:', size_human(size_unique), 'shared:', size_human(size_shared), 'total:', size_human(size_unique+size_shared), 'unoptimized total:', size_human(size_unoptimized), 'saved by optimization:', size_human(size_unoptimized-(size_unique+size_shared)))
 
 # truncate file to 0 (freeing space even if it has hardlink count >1)
 # `echo ''> file`
@@ -349,12 +354,18 @@ def clone_hardlink(src, dst):
     for root, dirs, files in os.walk(src):
         rel_path = os.path.join(os.path.relpath(root, src), '')
         dst_path = os.path.join(dst, rel_path)
-        os.makedirs(dst_path, exist_ok=True)
+        if not CONFIG_READONLY:
+            os.makedirs(dst_path, exist_ok=True)
+        else:
+            print('readonly, skipping modifying op')
         for file_ in files:
             rel_path = os.path.join(os.path.relpath(root, src), file_)
             src_path = os.path.join(src, rel_path)
             dst_path = os.path.join(dst, rel_path)
-            os.link(src_path, dst_path)
+            if not CONFIG_READONLY:
+                os.link(src_path, dst_path)
+            else:
+                print('readonly, skipping modifying op')
 
 # verify that 2 trees are identical
 # `diff -r src dst`
@@ -391,6 +402,7 @@ def verify(src, dst, allow_new_files=False, allow_older_mtimes=False):
                 result = False
                 continue
             if not filecmp.cmp(src_path, dst_path):
+                print('different:', rel_path)
                 result = False
     if allow_new_files==True:
         return result
